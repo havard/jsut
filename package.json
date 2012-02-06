@@ -1,0 +1,15 @@
+{
+  "name": "jsut",
+  "version": "0.0.4",
+  "description": "JavaScript Unit Testing (JSUT) is universal, simple unit testing for JavaScript. It provides assertions and a command for running tests inside browsers and/or Node.js.",
+  "author": {
+    "name": "Håvard Stranden",
+    "email": "havard.stranden@gmail.com"
+  },
+  "bin": { "jsut": "./jsut" },
+  "files": [ "jsut", "jsut.js", "jsut.html", "assert.js" ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/havard/jsut.git"
+  }
+}
