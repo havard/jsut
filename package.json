@@ -6,8 +6,11 @@
     "name": "Håvard Stranden",
     "email": "havard.stranden@gmail.com"
   },
-  "bin": { "jsut": "./jsut" },
-  "files": [ "jsut", "jsut.js", "jsut.html", "assert.js" ],
+  "bin": { "jsut": "./jsut.bat" },
+  "files": [ "jsut.bat", "jsut.sh", "jsut.js", "jsut.html", "assert.js", "npm-install.js" ],
+  "scripts": {
+    "install": "node npm-install.js"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/havard/jsut.git"
