@@ -95,7 +95,14 @@ jsut = {
       for(var i in this.enumerables) {
         var enumerable = this.enumerables[i];
         for(var j in enumerable) {
-          if(typeof(enumerable[j]) === 'function' && !this.initials[j]) {
+          var type = null;
+          try {
+            type = typeof(enumerable[j])
+          }
+          catch(err) {
+            // Ignore type lookup errors (Firefox internals are particularly lousy at this)
+          }
+          if(type === 'function' && !this.initials[j]) {
             this.tests[j] = enumerable[j];
           }
         }
@@ -109,7 +116,7 @@ jsut = {
         var test = runner.tests[testName];
         var token = runner.reporter.testStarted(runToken, testName);
         try {
-          var timeoutFunction = setTimeout(10000, function() { runner.reporter.testEnded(token, null); });
+          var timeoutFunction = setTimeout(function() { runner.reporter.testEnded(token, null); }, 10000);
           test({ done: function() { clearTimeout(timeoutFunction); runner.reporter.testEnded(token, true); }});
         }
         catch(err) {
