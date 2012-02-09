@@ -110,20 +110,45 @@ jsut = {
     },
 
     run: function() {
-      var runner = this;
-      var runToken = runner.reporter.runStarted();
-      for(var testName in runner.tests) {
-        var test = runner.tests[testName];
+      var runToken = this.reporter.runStarted();
+      for(var testName in this.tests) {
+        var test = this.tests[testName];
+        var assumeAsynchronousTest = true;
+        try {
+          assumeAsynchronousTest = test.length >= 1;
+        }
+        catch (err) {
+        }
+
+        this.runTest(runToken, testName, test, assumeAsynchronousTest);
+      }
+      this.reporter.runEnded();
+    },
+
+    runTest: function(runToken, testName, test, async) {
+        var runner = this;
         var token = runner.reporter.testStarted(runToken, testName);
         try {
-          var timeoutFunction = setTimeout(function() { runner.reporter.testEnded(token, null); }, 10000);
-          test({ done: function() { clearTimeout(timeoutFunction); runner.reporter.testEnded(token, true); }});
+          var timeoutToken; 
+
+          if (async) {
+            timeoutToken = setTimeout(function() { runner.reporter.testEnded(token, null); }, 10000);
+          }
+
+          test({ done: function() { 
+            if (async) { 
+              clearTimeout(timeoutToken); 
+              runner.reporter.testEnded(token, true);
+            } 
+          }});
+
+          if (!async) {
+            runner.reporter.testEnded(token, true);
+          }
         }
         catch(err) {
           runner.reporter.testEnded(token, false);
         }
-      }
-      runner.reporter.runEnded();
     }
   }
 };
