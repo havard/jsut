@@ -3,10 +3,10 @@ var passes = function(test) {
 }
 
 var fails = function(test) {
-  test.ok(false);
+  assert.ok(false);
 }
 
-var indeterminate = function() {
+var passesSynchronously = function() {
 }
 
 if(typeof(exports) !== 'undefined') {
