@@ -92,11 +92,14 @@ relativepath () {
 
 set -f # noglob
 
+# Display usage 
 usage() {
   cat <<EOF
-Usage: $0 [-b <browser> ]* [ -nh ] <file> [file ...]
+Usage: $0 [ -b <browser> ]* [ -d <path> ]* [ -nh ] <path> [<path>]*
 EOF
 }
+
+# Display usage and help
 help() {
   usage
   cat <<EOF
@@ -107,6 +110,8 @@ possible.
 Options:
   -b <browser>  Run test in the specified browser. Can be repeated to specify
                 multiple browsers.
+  -d <path>     Add the given path to the test environment as a dependency.
+                Any tests in any files in the dependency path will be ignored.
   -n            Run tests in Node.js. Requires Node.js to be present in the 
                 PATH of the local machine.
   -t <timeout>  Specify how long to wait (in seconds) before terminating the
@@ -124,90 +129,16 @@ object, optionally passing an error message as the first argument.
 
 JSUT supports assertions in the style of the Node.js assert module. Please see
 the Node.js site at http://nodejs.org for documentation on its assert module.
-
-
 EOF
 }
 
-FILEINDEX=0
-while [ $# -gt 0 ]; do
-  case $1 in
-    -*) break;;
-    *) 
-      eval FILE$FILEINDEX=$1
-      FILEINDEX=$((FILEINDEX + 1))
-      ;;
-  esac
-  shift
-done
-BROWSERINDEX=0
-while getopts "b:hn" OPTION
-do
-  case $OPTION in 
-    b)
-      case $OPTARG in
-        firefox|ff|f)
-          ;;
-        opera|o)
-          ;;
-        safari|s)
-          ;;
-        chrome|c)
-          ;;
-        internetexplorer|ie|i)
-          ;;
-        *)
-          echo "Error: Unsupported browser \"$OPTARG\""
-          usage
-          exit 1
-          ;;
-      esac
-
-      eval BROWSERS$BROWSERINDEX=$OPTARG
-      BROWSERINDEX=$((BROWSERINDEX + 1))
-      ;;
-    h)
-      help
-      exit 0
-      ;;
-    n)
-      NODE=true
-      ;;
-    *)
-      usage
-      exit 1
-      ;;
-  esac
-done
-
-# Parse away options from args
-while [ $OPTIND -gt 1 ]; do
-  shift
-  OPTIND=$((OPTIND - 1))
-done
-
-while [ $# -gt 0 ]; do
-  case $1 in
-    -*) break;;
-    *) 
-      eval FILE$FILEINDEX=$1
-      FILEINDEX=$((FILEINDEX + 1))
-      ;;
-  esac
-  shift
-done
-
-# FIXME: Rather than bailing, terate while not done
-if [ $# -gt 0 ]; then
-  echo "Error: Please specify one consecutive series of options."
-  exit 1
-fi
-
+# Run tests in Node.js
 nodejs() {
   cd $TMPDIR
   node __jsut.js $NODESCRIPTS
 }
 
+# Run tests in Firefox
 jsut_firefox() {
   open -a Firefox $JSUTURL
 }
@@ -220,14 +151,16 @@ jsut_f() {
   jsut_firefox
 }
 
+# Run tests in Opera
 jsut_opera() {
-  echo "Opera not yet supported."
+  open -a Opera $JSUTURL
 }
 
 jsut_o() {
   jsut_opera
 }
 
+# Run tests in Safari
 jsut_safari() {
   open -a Safari $JSUTURL
 }
@@ -236,6 +169,7 @@ jsut_s() {
   jsut_safari
 }
 
+# Run tests in Chrome
 jsut_chrome() {
   open -a Google\ Chrome $JSUTURL
 }
@@ -244,8 +178,9 @@ jsut_c() {
   jsut_chrome
 }
 
+# Run tests in Internet Explorer
 jsut_internetexplorer() {
-  echo "MSIE not yet supported."
+  echo "Microsoft Internet Explorer is not supported on this platform."
 }
 
 jsut_ie() {
@@ -256,15 +191,125 @@ jsut_i() {
   jsut_internetexplorer
 }
 
+# Parse and read command line options and arguments
+BROWSERINDEX=0
+DEPENDENCYINDEX=0
+FILEINDEX=0
+
+while [ $# -gt 0 ]; do
+  case $1 in
+    -*) 
+      while getopts "b:d:hn" OPTION
+      do
+        case $OPTION in 
+          b)
+            case $OPTARG in
+              firefox|ff|f)
+                ;;
+              opera|o)
+                ;;
+              safari|s)
+                ;;
+              chrome|c)
+                ;;
+              internetexplorer|ie|i)
+                ;;
+              *)
+                echo "Error: Unsupported browser \"$OPTARG\""
+                usage
+                exit 1
+                ;;
+            esac
+
+            eval BROWSERS$BROWSERINDEX=$OPTARG
+            BROWSERINDEX=$((BROWSERINDEX + 1))
+            ;;
+          d)
+            if [ ! -f $OPTARG ] && [ ! -d $OPTARG ]; then
+              echo "Error: Dependency $OPTARG is not a file or directory."
+              usage
+              exit 1
+            fi
+            eval DEPENDENCY$DEPENDENCYINDEX=$OPTARG
+            DEPENDENCYINDEX=$((DEPENDENCYINDEX + 1))
+            ;;
+          h)
+            help
+            exit 0
+            ;;
+          n)
+            NODE=true
+            ;;
+          *)
+            usage
+            exit 1
+            ;;
+        esac
+      done
+      while [ $OPTIND -gt 1 ]; do
+        shift
+        OPTIND=$((OPTIND - 1))
+      done
+      ;;
+    *) 
+      eval FILE$FILEINDEX=$1
+      FILEINDEX=$((FILEINDEX + 1))
+      shift
+      ;;
+  esac
+done
+
+# Validate options and arguments
+if [ -z $BROWSERS0 ] && [ -z $NODE ]; then
+  echo "Error: You must specify one of -b <browser> or -n to run tests."
+  usage
+  exit 1
+elif [ -z $FILE0 ]; then
+  echo "Error: You must specify at least one test file."
+  usage
+  exit 1
+fi
+
+# Create temporary test suite folder
 TMPDIR=/tmp/jsut.$$
 mkdir -p $TMPDIR
 
+# Read dependencies and load into test suite folder
+CURRENTDEPENDENCY=0
+while [ ! -z $(eval echo  "\${DEPENDENCY${CURRENTDEPENDENCY}}") ]; do
+  QUALIFIEDDEPENDENCY=$(eval echo \$DEPENDENCY${CURRENTDEPENDENCY})
+
+  if [ ! -f $QUALIFIEDDEPENDENCY ] && [ ! -d $QUALIFIEDDEPENDENCY ]; then
+    echo "Error: Dependency path $QUALIFIEDDEPENDENCY is not a file or directory."
+    exit 1
+  fi
+
+  if [ "$(pwd -P $QUALIFIEDDEPENDENCY)" = "$(dirname $QUALIFIEDDEPENDENCY)" ]; then
+    relativepath $PWD $QUALIFIEDDEPENDENCY
+    QUALIFIEDDEPENDENCY=$result
+  fi
+
+  mkdir -p $TMPDIR/$QUALIFIEDDEPENDENCYDIR
+  cp -r $QUALIFIEDDEPENDENCY $TMPDIR
+  if [ -f $QUALIFIEDDEPENDENCY ] && [ "${QUALIFIEDDEPENDENCY##*.}" = "js" ]; then
+    BROWSERSCRIPTS="${BROWSERSCRIPTS}\\<script\\ type=\\\"text\\/javascript\\\"\\ src=\\\"${QUALIFIEDDEPENDENCY}\\\"\\>\\<\\/script\\>"
+  elif [ -d $QUALIFIEDDEPENDENCY ]; then
+    for TESTDEPENDENCY in $(ls $QUALIFIEDDEPENDENCY); do
+      if [ "${TESTDEPENDENCY##*.}" = "js" ]; then
+        BROWSERSCRIPTS="${BROWSERSCRIPTS}\\<script\\ type=\\\"text\\/javascript\\\"\\ src=\\\"${QUALIFIEDDEPENDENCY}\\/${TESTDEPENDENCY}\\\"\\>\\<\\/script\\>"
+      fi
+    done
+  fi
+  CURRENTDEPENDENCY=$((CURRENTDEPENDENCY+1))
+done
+
+# Read test files and load into test suite folder
 CURRENTFILE=0
 while [ ! -z $(eval echo "\${FILE${CURRENTFILE}}") ]; do
   QUALIFIEDFILE=$(eval echo \$FILE${CURRENTFILE})
 
-  if [ ! -f $QUALIFIEDFILE ]; then
-    echo "Error: $QUALIFIEDFILE is not a file."
+  if [ ! -f $QUALIFIEDFILE ] && [ ! -d $QUALIFIEDFILE ]; then
+    echo "Error: Test path $QUALIFIEDFILE is not a file or directory."
     exit 1
   fi
   if [ "$(pwd -P $QUALIFIEDFILE)" = "$(dirname $QUALIFIEDFILE)" ]; then
@@ -273,26 +318,33 @@ while [ ! -z $(eval echo "\${FILE${CURRENTFILE}}") ]; do
   fi
   QUALIFIEDFILEDIR=$(dirname $QUALIFIEDFILE)
   mkdir -p $TMPDIR/$QUALIFIEDFILEDIR
-  cp $QUALIFIEDFILE $TMPDIR
-  BROWSERSCRIPTS="${BROWSERSCRIPTS}\\<script\\ type=\\\"text\\/javascript\\\"\\ src=\\\"${QUALIFIEDFILE}\\\"\\>\\<\\/script\\>"
+  cp -r $QUALIFIEDFILE $TMPDIR
+  if [ -f $QUALIFIEDFILE ]; then
+    BROWSERSCRIPTS="${BROWSERSCRIPTS}\\<script\\ type=\\\"text\\/javascript\\\"\\ src=\\\"${QUALIFIEDFILE}\\\"\\>\\<\\/script\\>"
+  else 
+    for TESTFILE in $(ls $QUALIFIEDFILE); do
+      if [ "${TESTFILE##*.}" = "js" ]; then
+        BROWSERSCRIPTS="${BROWSERSCRIPTS}\\<script\\ type=\\\"text\\/javascript\\\"\\ src=\\\"${QUALIFIEDFILE}\\/${TESTFILE}\\\"\\>\\<\\/script\\>"
+      fi
+    done
+  fi
   NODESCRIPTS="${NODESCRIPTS} ${QUALIFIEDFILE}"
   CURRENTFILE=$((CURRENTFILE+1))
 done
 
+# Prepare JSUT browser test and scripts
 sed s/SCRIPTS/"$BROWSERSCRIPTS"/ $JSUTDIR/jsut.html > $TMPDIR/jsut.html
 cp $JSUTDIR/assert.js $TMPDIR/__assert.js
 cp $JSUTDIR/jsut.js $TMPDIR/__jsut.js
 JSUTURL=file://$TMPDIR/jsut.html
 cd $TMPDIR
 
+# Run Node if asked to
 if [ $NODE ]; then
   nodejs
-elif [ -z $BROWSERS0 ]; then
-  echo "Error: You must specify one of -b <browser> or -n to run tests."
-  usage
-  exit 1
 fi
 
+# Run browsers if asked to
 CURRENTBROWSER=0
 while [ ! -z $(eval echo "\${BROWSERS${CURRENTBROWSER}}") ]; do
   eval jsut_\$BROWSERS${CURRENTBROWSER}
