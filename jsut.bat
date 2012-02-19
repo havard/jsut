@@ -13,6 +13,7 @@ set OPERAEXE=%PROGRAMFILES(X86)%\Opera\opera.exe
 set SAFARIEXE=%PROGRAMFILES(X86)%\Safari\safari.exe
 
 set BROWSERCOUNT=0
+set DEPENDENCYCOUNT=0
 set FILECOUNT=0
 set NODE=no
 
@@ -21,6 +22,7 @@ set OPT=%1
 if (%OPT%) == () goto Run
 if /I (%OPT%) == (-h) goto PrintHelp
 if /I (%OPT%) == (-b) goto ReadBrowserParameter
+if /I (%OPT%) == (-d) goto ReadDependencyParameter
 if /I (%OPT%) == (-n) goto ReadNodeParameter
 if /I (%OPT:~0,1%) == (-) goto ErrorUnknownOption
 goto ReadFileParameter
@@ -51,6 +53,14 @@ goto ReadOptions
 set NODE=yes
 shift
 goto ReadOptions
+
+:ReadDependencyParameter
+set DEPENDENCY!DEPENDENCYCOUNT!=%2
+set /A DEPENDENCYCOUNT=!DEPENDENCYCOUNT! + 1
+shift
+shift
+goto ReadOptions
+
 
 :ReadFileParameter
 set FILE!FILECOUNT!=%1
@@ -86,6 +96,8 @@ echo.
 echo Options:
 echo   -b ^<browser^>  Run test in the specified browser. Can be repeated to specify
 echo                 multiple browsers.
+echo   -d ^<path^>     Add the given path to the test environment as a dependency.
+echo                 Any tests in any files in the dependency path will be ignored.
 echo   -n            Run tests in Node.js. Requires Node.js to be present in the 
 echo                 PATH of the local machine.
 echo   -t ^<timeout^>  Specify how long to wait (in seconds) before terminating the
@@ -106,56 +118,167 @@ echo the Node.js site at http://nodejs.org for documentation on its assert modul
 goto End
 
 :PrintUsage
-echo Usage: jsut [-b ^<browser^> ]* [ -nh ] ^<file^> [file ...]
+echo Usage: jsut [-b ^<browser^> ]* [ -d ^<path^> ] [ -nh ] ^<path^> [^<path^> ...]
 goto End
 
 :ErrorMissingBrowser
 echo Error: The specified browser is not installed on your system.
 goto PrintUsage
 
+:ErrorPathIsNotAFileOrDirectory
+echo Error: The specified path is not a file or directory.
+goto PrintUsage
+
+:ErrorDependencyIsNotAFileOrDirectory
+echo Error: The dependency "%ERRONEOUSDEPENDENCY%" is not a file or directory.
+goto PrintUsage
+
+:ErrorTestArgumentIsNotAFileOrDirectory
+echo Error: "%ERRONEOUSFILE%" is not a file or directory.
+goto PrintUsage
+
+:ErrorCouldNotCreateDirectory
+echo Error: Could not create directory in temporary test environment.
+echo Please check that you have permissions to write to %TMP%.
+goto PrintUsage
+
 :jsut_chrome
 :jsut_c
 if not exist "%CHROMEEXE%" Goto ErrorMissingBrowser
 "%CHROMEEXE%" "%JSUTURL%"
-goto End
+goto Browser
 
 :jsut_firefox
 :jsut_ff
 :jsut_f
 if not exist "%FFEXE%" goto ErrorMissingBrowser
 "%FFEXE%" "%JSUTURL%"
-goto End
+goto Browser
 
 :jsut_internetexplorer
 :jsut_ie
 :jsut_i
 if not exist "%IEEXE%" Goto ErrorMissingBrowser
 "%IEEXE%" "%JSUTURL%"
-goto End
+goto Browser
 
 :jsut_opera
 :jsut_o
 if not exist "%OPERAEXE%" goto ErrorMissingBrowser
 "%OPERAEXE%" "%JSUTURL%"
-goto End
+goto Browser
 
 :jsut_safari
 :jsut_s
 if not exist "%SAFARIEXE%" goto ErrorMissingBrowser
 "%SAFARIEXE%" "%JSUTURL%"
+goto Browser
+
+:AddFile 
+if "%3" == "" (
+	set FILE=%1
+) else (
+	set FILE=%3\%1
+)
+
+if "%COMMON_ROOT%" == "" (
+	set FILE=!FILE:^:=!
+) else (
+	set FILE=!FILE:%COMMON_ROOT%\=!
+)
+set SCRIPTS=!SCRIPTS!^<script type="text/javascript" src="%FILE:\=/%"^>^<^/script^>
+if "%2" == "yes" (
+	call :AddNodeFile %FILE%
+)
+goto End
+
+:AddNodeFile
+set NODEFILE=%1
+set NODEFILE=!NODEFILE:\=/!
+set NODEFILES=%NODEFILES% "%NODEFILE%"
+goto End
+
+:IsDirectory 
+set ATTR=%~a1
+set DIRATTR=%ATTR:~0,1%
+if /I "%DIRATTR%"=="d" (
+  set IS_DIRECTORY=yes
+) else (
+  set IS_DIRECTORY=no
+)
+goto End
+
+:GetDirectory
+set DIRECTORY=%~dp1
+goto End
+
+:GetLastDirectoryName
+set THEPATH=%1
+pushd .
+cd /d %THEPATH%
+cd ..
+set PATHBELOW=%CD%
+popd
+set LAST_DIRECTORY_NAME=!THEPATH:%PATHBELOW%\=!
+goto End
+
+:GetAbsolutePath
+set ABSOLUTEPATH=%~f1
+goto End
+
+:GetDifference
+set A=%1
+set DIFFERENCE=!A:%2=!
+goto End
+
+:IsFile
+set ATTR=%~a1
+set FILEATTR=%ATTR:~0,1%
+if "%FILEATTR%"=="-" (
+  set IS_FILE=yes
+) else (
+  set IS_FILE=no
+)
+goto End
+
+:UpdateCommonRoot
+if "%COMMON_ROOT%" == "" goto End
+pushd .
+cd /d %1 > nul
+if %ERRORLEVEL% NEQ 0 (
+	set COMMON_ROOT=
+	popd
+	goto End
+)
+:ContinueSearchForCommonRoot
+set CURPATH=!CD!
+set PATHDIFFERENCE=!COMMON_ROOT:%CURPATH%=!
+if "%PATHDIFFERENCE%" == "%COMMON_ROOT%" (
+	set PREVDIR=!CD!
+	cd ..
+	if "%PREVDIR%" == "!CD!" (
+		set COMMON_ROOT=
+		popd
+		goto End
+	)
+
+	goto ContinueSearchForCommonRoot
+)
+set COMMON_ROOT=%CURPATH%
+popd
 goto End
 
 :FindAndReplace
 setlocal disabledelayedexpansion
-for /f "tokens=1,* delims=]" %%A in ('"type jsut.html|find /n /v """') do (
+for /f "tokens=1,* delims=]" %%A in ('"type %3|find /n /v """') do (
     set "line=%%B"
     if defined line (
-        call set "line=echo.%%line:%TOFIND%=%TOREPLACE%%%"
-        for /f "delims=" %%X in ('"echo."%%line%%""') do %%~X >> "%TARGETFILE%"
-    ) ELSE echo. >> "%TARGETFILE%"
+        call set "line=echo.%%line:%~1=%~2%%"
+        for /f "delims=" %%X in ('"echo."%%line%%""') do %%~X >> "%4"
+    ) else echo. >> "%4"
 )
 setlocal enabledelayedexpansion
-goto StartTests
+goto End
 
 :Run
 if %FILECOUNT% LEQ 0 goto ErrorNoFilesSpecified
@@ -164,6 +287,55 @@ if %BROWSERCOUNT% LEQ 0 (
 		goto ErrorNoTestEnvironmentsSpecified
 	)
 )
+
+call :GetAbsolutePath "%FILE0%"
+set COMMON_ROOT=%ABSOLUTEPATH%
+rem TODO: Validate common root
+
+set CDCOUNT=!DEPENDENCYCOUNT!
+:ValidateDependencies
+if %CDCOUNT% LEQ 0 goto ContinueWithFileValidation
+set /A CDCOUNT=%CDCOUNT% - 1
+set TOCHECK=!DEPENDENCY%CDCOUNT%!
+call :GetAbsolutePath "%TOCHECK%"
+set TOCHECK=%ABSOLUTEPATH%
+set ADEPENDENCY!CDCOUNT!=%ABSOLUTEPATH%
+call :IsDirectory "%TOCHECK%"
+if not "!IS_DIRECTORY!" == "yes" (
+	call :IsFile "%TOCHECK%"
+	if not "!IS_FILE!" == "yes" (
+		set ERRONEOUSDEPENDENCY=!DEPENDENCY%CDCOUNT%!
+		goto ErrorDependencyIsNotAFileOrDirectory
+	)
+	call :GetDirectory %TOCHECK%
+	set TOCHECK=!DIRECTORY!
+)
+call :UpdateCommonRoot !TOCHECK!
+goto ValidateDependencies
+
+:ContinueWithFileValidation
+set CFCOUNT=!FILECOUNT!
+:ValidateFiles
+if %CFCOUNT% LEQ 0 goto PrepareTestEnvironment
+set /A CFCOUNT=%CFCOUNT% - 1
+set TOCHECK=!FILE%CFCOUNT%!
+call :GetAbsolutePath "%TOCHECK%"
+set TOCHECK=%ABSOLUTEPATH%
+set AFILE!CFCOUNT!=%ABSOLUTEPATH%
+call :IsDirectory "%TOCHECK%"
+if not "!IS_DIRECTORY!" == "yes" (
+	call :IsFile "%TOCHECK%"
+	if not "!IS_FILE!" == "yes" (
+		set ERRONEOUSFILE=!FILE%CFCOUNT%!
+		goto ErrorTestArgumentIsNotAFileOrDirectory
+	)
+	call :GetDirectory %TOCHECK%
+	set TOCHECK=!DIRECTORY!
+)
+call :UpdateCommonRoot !TOCHECK!
+goto ValidateFiles
+
+:PrepareTestEnvironment
 set hours=%TIME:~0,2%
 set hours=%hours: =0%
 set minutes=%TIME:~3,2%
@@ -180,40 +352,93 @@ set JSUTURL=file://%JSUTDIR:\=/%/jsut.html
 
 copy /y "%INSTALLDIR%\jsut.js" "%JSUTDIR%\__jsut.js" > nul
 copy /y "%INSTALLDIR%\assert.js" "%JSUTDIR%\__assert.js" > nul
-set TOFIND=SCRIPTS
-set TOREPLACE=
+
+set SCRIPTS=
+set NODEFILES=
+
+:DependencyLoop
+if %DEPENDENCYCOUNT% LEQ 0 goto FileLoop
+set /A DEPENDENCYCOUNT=%DEPENDENCYCOUNT% - 1
+set CURRENTDEPENDENCY=!DEPENDENCY%DEPENDENCYCOUNT%!
+set THEABSOLUTEPATH=!ADEPENDENCY%DEPENDENCYCOUNT%!
+if "%COMMON_ROOT%" == "" (
+	set PATH_RELATIVE_TO_ROOT=!THEABSOLUTEPATH!
+) else (
+	set PATH_RELATIVE_TO_ROOT=!THEABSOLUTEPATH:%COMMON_ROOT%\=!
+)
+set PREPEND_PATH=!PATH_RELATIVE_TO_ROOT:%CURRENTDEPENDENCY%=!
+if not "%PREPEND_PATH%" == "" (
+	md "%JSUTDIR%\%PREPEND_PATH%"
+	if %ERRORLEVEL% NEQ 0 goto ErrorCouldNotCreateDirectory
+)
+call :IsDirectory "%CURRENTDEPENDENCY%"
+if "!IS_DIRECTORY!" == "yes" (
+	call :GetLastDirectoryName "%THEABSOLUTEPATH%"
+	md "%JSUTDIR%\%PREPEND_PATH%\!LAST_DIRECTORY_NAME!" > nul
+	xcopy /e "%CURRENTDEPENDENCY%" "%JSUTDIR%\%PREPEND_PATH%\!LAST_DIRECTORY_NAME!" > nul
+	for /f "delims=|" %%f in ('dir /b /s "%CURRENTDEPENDENCY%\"') do (call :AddFile %%~ff "no" %PREPEND_PATH%)
+) else (
+	set ARGUMENT_PATH=
+	set PATHSTART=!THEABSOLUTEPATH:%CURRENTDEPENDENCY%=!
+	if not "!PATHSTART!" == "" (
+		call :GetDirectory %CURRENTDEPENDENCY%
+		call :GetDifference !DIRECTORY! !PATHSTART!
+		set ARGUMENT_PATH=!DIFFERENCE!
+		md "%JSUTDIR%\%PREPEND_PATH%\!ARGUMENT_PATH!" > nul
+	)
+	copy /y "%CURRENTDEPENDENCY%" "%JSUTDIR%\%PREPEND_PATH%\!ARGUMENT_PATH!" > nul
+	call :AddFile %CURRENTDEPENDENCY% "no" %PREPEND_PATH%
+)
+goto DependencyLoop
+
 :FileLoop
-if %FILECOUNT% LEQ 0 goto EndFileLoop
+if %FILECOUNT% LEQ 0 goto WriteScriptsToHtmlFile
 set /A FILECOUNT=%FILECOUNT% - 1
 set CURRENTFILE=!FILE%FILECOUNT%!
-copy /y "%CURRENTFILE%" "%JSUTDIR%" > nul
-set TOREPLACE=%TOREPLACE%^<script type="text/javascript" src="%CURRENTFILE%"^>^</script^>
+set THEABSOLUTEPATH=!AFILE%FILECOUNT%!
+if "%COMMON_ROOT%" == "" (
+	set PATH_RELATIVE_TO_ROOT=!THEABSOLUTEPATH!
+) else (
+	set PATH_RELATIVE_TO_ROOT=!THEABSOLUTEPATH:%COMMON_ROOT%\=!
+)
+set PREPEND_PATH=!PATH_RELATIVE_TO_ROOT:%CURRENTFILE%=!
+if not "%PREPEND_PATH%" == "" (
+	md "%JSUTDIR%\%PREPEND_PATH%"
+	if %ERRORLEVEL% NEQ 0 goto ErrorCouldNotCreateDirectory
+)
+call :IsDirectory "%CURRENTFILE%"
+if "!IS_DIRECTORY!" == "yes" (
+	call :GetLastDirectoryName "%THEABSOLUTEPATH%"
+	md "%JSUTDIR%\%PREPEND_PATH%\!LAST_DIRECTORY_NAME!" > nul
+	xcopy /e "%CURRENTFILE%" "%JSUTDIR%\%PREPEND_PATH%\!LAST_DIRECTORY_NAME!" > nul
+	for /f  "delims=|" %%f in ('dir /b /s "%CURRENTFILE%\"') do (call :AddFile %%~ff %NODE% %PREPEND_PATH%)
+) else (
+	set ARGUMENT_PATH=
+	set PATHSTART=!THEABSOLUTEPATH:%CURRENTFILE%=!
+	if not "!PATHSTART!" == "" (
+		call :GetDirectory %CURRENTFILE%
+		call :GetDifference !DIRECTORY! !PATHSTART!
+		set ARGUMENT_PATH=!DIFFERENCE!
+		md "%JSUTDIR%\%PREPEND_PATH%\!ARGUMENT_PATH!" > nul
+	)
+	copy /y "%CURRENTFILE%" "%JSUTDIR%\%PREPEND_PATH%\!ARGUMENT_PATH!" > nul
+	call :AddFile %CURRENTFILE% %NODE% %PREPEND_PATH%
+)
 goto FileLoop
-:EndFileLoop
-set TARGETFILE=%JSUTDIR%\jsut.html
-cd %INSTALLDIR%
-goto :FindAndReplace
+
+:WriteScriptsToHtmlFile
+call :FindAndReplace SCRIPTS "%SCRIPTS%" "%INSTALLDIR%\jsut.html" "%JSUTDIR%\jsut.html"
 :StartTests
-cd %CURRENTDIR%
-:BrowserLoop
-if %BROWSERCOUNT% LEQ 0 goto EndBrowserLoop 
+cd /d %CURRENTDIR%
+
+:Browser
+if %BROWSERCOUNT% LEQ 0 goto Node 
 set /A BROWSERCOUNT=%BROWSERCOUNT% - 1
 set BROWSERTORUN=!BROWSER%BROWSERCOUNT%!
 goto jsut_!BROWSERTORUN!
-goto BrowserLoop
-
-:EndBrowserLoop
-if (%NODE%) == (yes) goto Node
-goto End
 
 :Node
-cd %JSUTDIR%
-set NODEFILES=
-for /f "delims=|" %%f in ('dir /b') do (
-	set CURRENTFILE="%%f"
-	if not "%CURRENTFILE%" == "__jsut.js" ( 
-		if not "%CURRENTFILE%" == "__assert.js" (
-			if "%CURRENTFILE:~-3%" == ".js" (set NODEFILES="%NODEFILES% %CURRENTFILE%")
-)))
+if not "%NODE%" == "yes" goto End
+cd /d "%JSUTDIR%"
 node __jsut.js %NODEFILES%
 :End
